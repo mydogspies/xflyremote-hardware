@@ -2,6 +2,8 @@
 // Controller logic for the Arduino/Nextion combo
 // License: GPLv3
 // https://github.com/mydogspies/xflyremote-hardware
+// The python main interface to xplane can be found at;
+// https://github.com/mydogspies/xflyremote-main
 
 #include <SoftwareSerial.h>
 SoftwareSerial nextion (2, 3);
