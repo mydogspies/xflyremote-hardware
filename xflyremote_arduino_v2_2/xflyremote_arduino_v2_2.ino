@@ -41,22 +41,12 @@ int aLastState;
 int rotary_switch_state = 1;
 
 // RADIO PAGE LOGIC
-//
-int select_state[4][2] = {
-  {0,0},
-  {0,0},
-  {0,0},
-  {0,0}
-};
-// radio state array as follows;
-// only one select at any time
-// 0 - no select
-// 1 - select left
-// 2 - select right
-int active_state_radios[3][2] = {
-  {0,0},
-  {0,0},
-  {0,0}
+// 
+int radio_select_state[4][4] = {
+  {0,0,0,0},
+  {0,0,0,0},
+  {0,0,0,0},
+  {0,0,0,0}
 };
 // transponder state array
 // only one single digit selected at one time
@@ -66,15 +56,14 @@ int active_state_transp[] = {0, 0, 0, 0};
 // current frequencies in each position
 // note second item in the responder list is currently not used
 String radio_values[4][2] = {
-  {"121.050","136.990"},
-  {"118.100","136.005"},
+  {"118.000","136.990"},
+  {"118.100","136.990"},
   {"0200","1750"},
-  {"1234","0"}
+  {"7000","0"}
 };
 // id of img used for different states
 const String IMG_ID_NOSEL = "4"; // state 0
-const String IMG_ID_SELLEFT = "12"; // state 1
-const String IMG_ID_SELRIGHT = "14"; // state 2
+const String IMG_ID_SEL = "9"; // state 0
 // select by postion (from left to right)
 const String IMG_ID_TRNSP_0 = "4"; // nothing selected
 const String IMG_ID_TRNSP_1 = "12"; // first digit
@@ -82,15 +71,31 @@ const String IMG_ID_TRNSP_2 = "13"; // second digit
 const String IMG_ID_TRNSP_3 = "14"; // third digit
 const String IMG_ID_TRNSP_4 = "8"; // fourth digit
 
-
 void setup() {
 
   Serial.begin(115200);
-  nextion.begin(38400);
+  nextion.begin(115200);
 
-  // for testing only
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
+  // SET START PAGE AND TEXT
+  //
+  String pg = "page 0";
+  nextion.print(pg);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+
+  String con_color = "65048";
+  String con_text = "Connecting...";
+  nextion.print(con_text);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.print(con_color);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.flush();
+  delay(1000);
 
   // rotary enncoder pins
   pinMode(rotaryCLK, INPUT);
@@ -99,7 +104,7 @@ void setup() {
   aLastState = digitalRead(rotaryCLK);
 
   // Query python for which page set to use
-  Serial.println("s?");
+  Serial.print("s?");
   while(wait != 0){
     while(Serial.available()) {
       from_python += Serial.readString();
@@ -109,9 +114,24 @@ void setup() {
       wait = 0;
     }
     from_python = "";
-    Serial.flush();
-    delay(100);
+    delay(500);    
   }
+
+  // for testing ONLY
+  sendradiotoxplane();
+
+  // tell the world we are ready
+  con_color = "con.pco=59387";
+  con_text = "con.txt=\"Connected!\"";
+  nextion.print(con_text);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.print(con_color);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.write(0xff);
+  nextion.flush();
 }
 
 
@@ -119,6 +139,33 @@ void loop() {
 
   readnextion();
   readrotary();
+
+}
+
+// SEND RADIO FREQ TO PYTHON
+// format to send to xplane is;
+// rf XXX.XXX XXX.XXX YYY.YYY YYY.YYY AAAA AAAA TTTT
+// where XXX.XXX is coms 1 & 2 (118.000 for example), YYY.YYY are the navs
+// AAAA are the two ADFs and TTTT is transponder value
+void sendradiotoxplane() {
+  int i;
+  int k;
+  String sendstring = "rf";
+
+  for(i=0; i<4; i++) {
+
+    for(k=0; k<2; k++) {
+
+      if(i==3 && k==1) {
+        // do nothing, last value has no functio for now
+      } else {
+        sendstring = sendstring + " " + radio_values[i][k];
+      }
+
+    }
+
+  }
+  Serial.print(sendstring);
 
 }
 
@@ -207,95 +254,44 @@ void setradiovalues() {
 // SET RADIO PAGE
 // sets the radio active and selection graphics depending on current states array active_state_radios[][]
 void setradiodisplay() {
-
-  String cmd = "";
-  String cmdt = "";
-  int k;
   int i;
-  int j;
-  int img_num = 1;
+  int k;
+  int idx = 0;
+  String cmd = "";
 
-  // SET PAGE - DEFAULT SET
-  //
-  if (current_page_set == 0) {
+  for (i=0; i<4; i++) {
 
-    // RADIOS
-    // Com 1&2, Nav 1&2 and ADF 1&2
-    for (i = 0; i<3; ++i) {
+    for (k=0; k<4; k++) {
 
-      for (k = 0; k<2; k++) {
-        
-        switch (active_state_radios[i][k]) {
+      idx ++;
+      // jump for boxes with dual state but for independent digits
+      if(idx == 10) {idx = 11;}
+      if(idx == 12) {idx = 13;}
+      if(idx == 14) {idx = 15;}
+      if(idx == 16) {idx = 17;}
 
-          case 0:
-            cmd = "im" + String(img_num) + ".picc=" + IMG_ID_NOSEL;
-            break;
-            
-          case 1:
-            cmd = "im" + String(img_num) + ".picc=" + IMG_ID_SELLEFT;
-            break;
+      int sel = radio_select_state[i][k];
 
-          case 2:
-            cmd = "im" + String(img_num) + ".picc=" + IMG_ID_SELRIGHT;
-            break;
-
-          default:
-            break;
-        }
-        
-        nextion.print(cmd);
-        nextion.write(0xff);
-        nextion.write(0xff);
-        nextion.write(0xff);
-        nextion.flush();
-        img_num ++;
-        
+      if(sel == 0) {
+        cmd = "sel" + String(idx) + ".picc=" + IMG_ID_NOSEL;
+      } else {
+        cmd = "sel" + String(idx) + ".picc=" + IMG_ID_SEL;
       }
-    }
 
-    // TRANSPONDER
-    // only 1 digit can be selected at anytime
-    for (j=0; j<4; j++) {
-
-      cmdt = "im7.picc=" + IMG_ID_TRNSP_0;
-
-      if (active_state_transp[j] == 1) {
-
-        switch (j) {
-
-          case 0:
-            cmdt = "im7.picc=" + IMG_ID_TRNSP_1;
-            break;
-            
-          case 1:
-            cmdt = "im7.picc=" + IMG_ID_TRNSP_2;
-            break;
-
-          case 2:
-            cmdt = "im7.picc=" + IMG_ID_TRNSP_3;
-            break;
-
-          case 3:
-            cmdt = "im7.picc=" + IMG_ID_TRNSP_4;
-            break;
-
-          default:
-            break;
-        }
-        
-      }
-      nextion.print(cmdt);
+      nextion.print(cmd);
       nextion.write(0xff);
       nextion.write(0xff);
       nextion.write(0xff);
       nextion.flush();
-
     }
-  } // END set default page
     
+  } 
+
 } // END setradiodisplay()
 
 
+// MAIN NEXTION LOOP
+//
 void readnextion() {
 
   int page = 0;
@@ -322,11 +318,14 @@ void readnextion() {
       nextion.write(0xFF);
       nextion.write(0xFF);
       nextion.write(0xFF);
+      delay(10);
+      nextion.flush();
+
+      // if it is a radio page we need to recall the values since we use local vars in Nextion that reset between pages
       if (req = 2) {
         setradiodisplay();
         setradiovalues();
       }
-      nextion.flush();
     }
 
     // BUTTON COMMANDS
@@ -344,6 +343,56 @@ void readnextion() {
       String button_cmd = from_nextion + String(page_button_state[page][button_id]);
       Serial.println(button_cmd);
       Serial.flush();
+    }
+
+    // RADIO SWAP BUTTONS
+    // string from nextion has format "s1" to "s3"
+    if(from_nextion.substring(0,1) == "s") {
+
+      // read radio_values array and swap values
+      int idx = from_nextion.substring(1,2).toInt();
+      String val1 = radio_values[idx - 1][0];
+      String val2 = radio_values[idx - 1][1];
+      radio_values[idx - 1][0] = val2;
+      radio_values[idx - 1][1] = val1;
+      setradiovalues();
+    }
+
+    // RADIO SELECT FREQ BUTTONS
+    // the string format for the number boxes is "rXXpXX" where rXX is the number box and pXX is its place in the radio_select_state array
+    if(from_nextion.substring(0,1) == "r") {
+      int k;
+      int j;
+      String cmd = "";
+
+      int array_row = from_nextion.substring(4,5).toInt();
+      int array_column = from_nextion.substring(5,6).toInt();
+      
+      // look up current value and switch state
+      int state = radio_select_state[array_row][array_column];
+      if(state == 0) {
+        resetradiostate();
+        delay(10);
+        radio_select_state[array_row][array_column] = 1;        
+      } else {
+        resetradiostate();
+        delay(10);
+        radio_select_state[array_row][array_column] = 0;
+      }
+      delay(10);
+      setradiodisplay();
+    }
+  }
+}
+
+// simply resets radio_select_state array to all off
+void resetradiostate() {
+  int k;
+  int j;
+
+  for(k=0; k<4; k++) {
+    for(j=0; j<4; j++) {
+      radio_select_state[k][j] = 0;
     }
   }
 }
