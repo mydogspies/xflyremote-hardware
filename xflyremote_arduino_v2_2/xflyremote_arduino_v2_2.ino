@@ -57,7 +57,7 @@ int active_state_transp[] = {0, 0, 0, 0};
 // note second item in the responder list is currently not used
 String radio_values[4][2] = {
   {"118.000","136.990"},
-  {"118.100","136.990"},
+  {"108.000","117.950"},
   {"0200","1750"},
   {"7000","0"}
 };
