@@ -138,7 +138,7 @@ void setup() {
 void loop() {
 
   readnextion();
-  readrotary();
+  // readrotary();
 
 }
 
@@ -294,6 +294,7 @@ void setradiodisplay() {
 //
 void readnextion() {
 
+  from_nextion = "";
   int page = 0;
   int button_id =0;
   String cmd = "";
@@ -301,16 +302,17 @@ void readnextion() {
 
   // FROM NEXTION
   if (nextion.available() > 0) {
-    from_nextion = "";
 
     while(nextion.available()) {
       from_nextion += char(nextion.read());
-      delay(50);
     }
+
+    
 
     // MENU COMMANDS
     // incoming menu commands are as follows; m1 - ap, m2 - radio, m3 - lights, m4 - sys, m5 -utility
     if(from_nextion.substring(0, 1) == "m") {
+
       int req = from_nextion.substring(1, 2).toInt();
       page = page_sets[current_page_set][req-1];
       String pg = "page " + String(page);
@@ -332,16 +334,20 @@ void readnextion() {
     // string from nextion has format;
     // for buttons - b(page)(button_id) - example: b0100 (button, contains 01 and 00 (page 1, button_id 0) )
     if(from_nextion.substring(0, 1) == "b") {
+
       page = from_nextion.substring(1, 3).toInt();
-      button_id = from_nextion.substring(3, 5).toInt();      
+      button_id = from_nextion.substring(3, 5).toInt();  
+
       if (page_button_state[page][button_id] == 0) {
         page_button_state[page][button_id] = 1;
       } else {
         page_button_state[page][button_id] = 0;
       }
-      delay(50);    
+
+      delay(100);    
       String button_cmd = from_nextion + String(page_button_state[page][button_id]);
       Serial.println(button_cmd);
+      delay(10);
       Serial.flush();
     }
 
