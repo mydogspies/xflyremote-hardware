@@ -22,6 +22,7 @@ const int page_sets[2][5] = {
   {3, 2, 1, 5, 4},
   {0, 0, 0, 0, 0}}
   ;
+// [page][button]
 int page_button_state[6][10] = {
   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -43,12 +44,15 @@ int aLastState;
 int rotary_switch_state = 1;
 
 // RADIO PAGE LOGIC
-// 
-int radio_select_state[4][4] = {
-  {0,0,0,0},
-  {0,0,0,0},
-  {0,0,0,0},
-  {0,0,0,0}
+//
+// [page][number_box]
+int radio_select_state[6][20] = {
+  {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 };
 // transponder state array
 // only one single digit selected at one time
@@ -73,6 +77,9 @@ const String IMG_ID_TRNSP_2 = "13"; // second digit
 const String IMG_ID_TRNSP_3 = "14"; // third digit
 const String IMG_ID_TRNSP_4 = "8"; // fourth digit
 
+//
+// SETUP
+//
 void setup() {
 
   Serial.begin(115200);
@@ -115,7 +122,9 @@ void setup() {
   sendtonextion(con_color);
 }
 
-
+//
+// MAIN PROGRAM LOOP
+//
 void loop() {
 
   nextionlisten();
@@ -155,7 +164,6 @@ void nextionlisten() {
             found = false;
             break;                            
           }                                     
-          delay(1);
         }                                   
 
         // get the actual command string
@@ -178,6 +186,12 @@ void nextionlisten() {
           //
           if(cmd.substring(0,1) == "b") {
             buttontopython(cmd.substring(0,len));
+          }
+
+          // NUMBER DISPLAY PRESSED
+          //
+          if(cmd.substring(0,1) == "v") {
+            radioselecttonextion(cmd.substring(0,len));
           }
 
         }
@@ -271,7 +285,10 @@ void sendtopython(String data) {
 void pagetonextion(int page) {
   String pg = "page " + String(page);
   sendtonextion(pg);
-  setbuttonstate(page);
+  setbuttonstate(page); 
+  if(page == 2) {
+    setradiostate(page);
+  }
 }
 
 // SET BUTTONS ACCORDING TO STATE ARRAY
@@ -279,7 +296,7 @@ void pagetonextion(int page) {
 void setbuttonstate(int page) {
   int i;
   int state;
-  String button = "b";
+  // String button = "b";
   String cmd;
 
   for(i=0; i<10; i++) {
@@ -288,10 +305,69 @@ void setbuttonstate(int page) {
     if(state == 0) {
       cmd += String(page) + ".b0" + String(page) + "0" + String(i) + ".val=0";
      } else {
-       cmd += String(page) + ".b0" + String(page) + "0" + String(i) + ".val=1";       
+      cmd += String(page) + ".b0" + String(page) + "0" + String(i) + ".val=1";       
     }
     sendtonextion(cmd);
   }
+}
+
+// CHANGE RADIO VALUE BOX STATE
+// Changes the select state of a radio value box
+void radioselecttonextion(String cmd) {
+  int i;
+  int page = cmd.substring(1,3).toInt();
+  int imgbox = cmd.substring(3,5).toInt();
+  int newvalue;
+
+  Serial.println(cmd);
+  Serial.println(page);
+  Serial.println(imgbox);
+
+  // check current value and remember new
+  if(radio_select_state[page][imgbox] == 0) {
+    newvalue = 1;
+  } else {
+    newvalue = 0;
+  }
+
+  // reset array
+  for(i=0;i<20;i++) {
+    radio_select_state[page][i] = 0;
+  }
+
+  // set to new value
+  radio_select_state[page][imgbox] = newvalue;
+  setradiostate(page);
+  
+}
+
+
+// SET RADIO NUMBER STATES
+// checks for current number box state for given page and sets a new value
+void setradiostate(int page) {
+  int i;
+  int state;
+  String id = "";
+  String cmd;
+
+  for(i=0;i<20;i++) {
+    state = radio_select_state[page][i];
+
+    if(i<10) {
+        id = "0";
+    } else {
+      id = "";
+    }
+
+    if(state == 0) {
+      cmd = "page" + String(page) + ".i0" + String(page) + id + String(i) + ".picc=8";
+     } else {
+      cmd = "page" + String(page) + ".i0" + String(page) + id + String(i) + ".picc=9"; 
+    }
+    Serial.println(cmd);
+    sendtonextion(cmd);
+  }
+
 }
 
 //
