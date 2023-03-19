@@ -82,6 +82,7 @@ void pagetonextion(long page);
 char inttochar(int value);
 void setradiovalues(int page);
 void setradiostate(int page);
+void buttontopython(char * data);
 //
 // SETUP
 //
@@ -92,7 +93,7 @@ void setup() {
 
     // SET START PAGE AND TEXT
     //
-    const char pg[7] = "page 0";
+    const char pg[8] = "page 0\0";
     sendtonextion(pg);
 
     // rotary enncoder pins
@@ -102,8 +103,8 @@ void setup() {
     rotLastState = digitalRead(rotaryCLK);
 
     // tell the world we are ready
-    const char con_color[14] = "con.pco=59387";
-    const char con_text[21] = "con.txt=\"Connected!\"";
+    const char con_color[15] = "con.pco=59387\0";
+    const char con_text[22] = "con.txt=\"Connected!\"\0";
     sendtonextion(con_text);
     sendtonextion(con_color);
 }
@@ -162,6 +163,7 @@ void nextionlisten() {
 
                 int inl;
 
+                // read rest of the incoming chars
                 for(inl=0; inl < len; inl++) {
                     unsigned char stuff = nextion.read();
                     cmdnext[inl] += stuff;
@@ -174,6 +176,7 @@ void nextionlisten() {
                     int i;
                     unsigned char page[3];
 
+                    // get the rest of the characters
                     for(i=0;i<2;i++) {
                         page[i] = cmdnext[i+1];
                     }
@@ -182,19 +185,31 @@ void nextionlisten() {
                     pagetonextion(strtol(reinterpret_cast<const char *>(page), (char **) "\0", 10));
                 }
 
-                /*
+
                 // BUTTON PRESSED
                 //
-                if(cmdnext[0] == "b") {
-                  buttontopython(cmdnext.substring(0,len));
+                if(cmdnext[0] == 'b') {
+
+                    int i;
+                    char cmdb[6] = "";
+
+
+                    // get the rest of the characters
+                    for(i=0;i<5;i++) {
+                        cmdb[i] = cmdnext[i];
+                    }
+                    cmdb[6] = '\0';
+
+                    buttontopython(cmdb);
                 }
 
+                /* ! FIX ME
                 // NUMBER DISPLAY PRESSED
                 //
                 if(cmdnext[0] == "v") {
                   radioselecttonextion(cmdnext.substring(0,len));
                 }
-                */
+                */ // ! END FIX
 
             }
 
@@ -473,9 +488,12 @@ void setradiovalues(int page) {
 
 // GET BUTTON AND SEND TO PYTHON
 // receives the button command and formats it with state for python
-void buttontopython(String cmd) {
-    String bcmd;
+void buttontopython(char * data) {
 
+
+    Serial.println(data);
+
+    /* ! FIX
     // define page and button positions in array
     int page = cmd.substring(1,3).toInt();
     int button = cmd.substring(3,5).toInt();
@@ -492,6 +510,7 @@ void buttontopython(String cmd) {
         bcmd = bcmd + "0000";
     }
     sendtopython(bcmd);
+    */ // ! FIX END
 }
 
 //
