@@ -8,6 +8,8 @@
 #include <SoftwareSerial.h>
 SoftwareSerial nextion (2, 3);
 
+char *concat(const char *a, const char *b);
+
 // SERIAL COMS
 //
 const unsigned int MAX_MESSAGE_LENGTH = 12;
@@ -18,10 +20,6 @@ int updated = 0;
 
 // PAGE LOGIC
 //
-const int page_sets[2][5] = {
-  {3, 2, 1, 5, 4},
-  {0, 0, 0, 0, 0}}
-  ;
 // [page][button]
 int page_button_state[6][10] = {
   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -38,10 +36,11 @@ int current_page_set = 0;
 #define rotaryCLK 6
 #define rotaryDT 7
 #define rotarySW 5
-int counter = 0;
-int aState;
-int aLastState;
-int rotary_switch_state = 1;
+int rotCounter = 0;
+int rotCurrentState;
+int rotLastState;
+int rotSwitchState = 0;
+String rotDirection;
 
 // RADIO PAGE LOGIC
 //
@@ -56,40 +55,19 @@ int radio_select_state[6][20] = {
   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 };
 // This global keeps track of which actual value box is currently selected
-String selectedbox;
-
-// transponder state array
-// only one single digit selected at one time
-// 0 - not active
-// 1 - active
-int active_state_transp[] = {0, 0, 0, 0};
-// current frequencies in each position
-// note second item in the responder list is currently not used
-// String radio_values[4][2] = {
-//  {"118.000","136.990"},
-//  {"108.000","117.950"},
-//  {"0200","1750"},
-//  {"7000","0"}
-// };
-
-String radiovalues[5][4] = {
-  {"120","000","130","500"},
-  {"110","000","115","100"},
-  {"0","1","9","0"},
-  {"1","2","5","0"},
-  {"7","7","7","7"}  
+String selectedbox = "0";
+// current radio values
+// row 0 - the current values, row 1 - min value. row 2 - max value, row 3 - increments allowed
+String radioValues[4][20] = {
+  {"115","000","130","500","110","000","115","100","0","1","9","0","1","2","5","0","5","5","5","5"},
+  {"118","000","118","000","108","000","108","000","0","2","0","0","0","2","0","0","0","0","0","0"},
+  {"136","990","136","990","117","950","117","950","1","7","5","0","1","7","5","0","7","7","7","7"},
+  {"1","5","1","5","1","5","1","5","1","1","1","1","1","1","1","1","1","1","1","1"}
 };
-
 
 // id of img used for different states
 const String IMG_ID_NOSEL = "4"; // state 0
 const String IMG_ID_SEL = "9"; // state 0
-// select by postion (from left to right)
-const String IMG_ID_TRNSP_0 = "4"; // nothing selected
-const String IMG_ID_TRNSP_1 = "12"; // first digit
-const String IMG_ID_TRNSP_2 = "13"; // second digit
-const String IMG_ID_TRNSP_3 = "14"; // third digit
-const String IMG_ID_TRNSP_4 = "8"; // fourth digit
 
 //
 // SETUP
@@ -108,34 +86,13 @@ void setup() {
   pinMode(rotaryCLK, INPUT);
   pinMode(rotaryDT, INPUT);
   pinMode(rotarySW, INPUT);
-  aLastState = digitalRead(rotaryCLK);
-
-  /*
-  // Query python for which page set to use
-  Serial.print("s?");
-  while(wait != 0){
-    while(Serial.available()) {
-      from_python += Serial.readString();
-    }
-    if(from_python.substring(0, 3) == "set") {
-      current_page_set = from_python.substring(3, 4).toInt();
-      wait = 0;
-    }
-    from_python = "";
-    delay(500);    
-  }
-  */
-
-  // for testing ONLY
-  // sendradiotoxplane();
+  rotLastState = digitalRead(rotaryCLK);
 
   // tell the world we are ready
   String con_color = "con.pco=59387";
   String con_text = "con.txt=\"Connected!\"";
   sendtonextion(con_text);
   sendtonextion(con_color);
-
-  
 }
 
 //
@@ -144,7 +101,10 @@ void setup() {
 void loop() {
 
   nextionlisten();
-  readrotary();
+  if(selectedbox != "0") {
+    readrotary();
+  }
+  
 
 }
 
@@ -174,6 +134,8 @@ void nextionlisten() {
         unsigned long wait1 = millis();
         boolean found = true;
 
+        
+
         // wait for the remaining string and time out if needed
         while(nextion.available() < len){          
           if((millis() - wait1) > 100){
@@ -183,32 +145,41 @@ void nextionlisten() {
         }                                   
 
         // get the actual command string
-        String cmd = "";                            
+        char cmdnext[9] = "";  
         if(found == true){
           int i;
 
           for(i=0; i<len; i++) {
             char stuff = nextion.read();
-            cmd += stuff;
-          }  
+            cmdnext[i] += stuff;
+          }            
 
           // CHANGE PAGE
           //
-          if(cmd.substring(0,1) == "m") {
-            pagetonextion(cmd.substring(1,3).toInt());
+          if(cmdnext[0] == 'm') {
+            
+            int i;
+            char page[2] = "";
+            for(i=0;i<2;i++) {
+              page[i] = cmdnext[i+1];
+            }
+            page[i+1] = '\0';
+            pagetonextion(atoi(page));
           }
 
+          /*
           // BUTTON PRESSED
           //
-          if(cmd.substring(0,1) == "b") {
-            buttontopython(cmd.substring(0,len));
+          if(cmdnext[0] == "b") {
+            buttontopython(cmdnext.substring(0,len));
           }
 
           // NUMBER DISPLAY PRESSED
           //
-          if(cmd.substring(0,1) == "v") {
-            radioselecttonextion(cmd.substring(0,len));
+          if(cmdnext[0] == "v") {
+            radioselecttonextion(cmdnext.substring(0,len));
           }
+          */
 
         }
 
@@ -299,13 +270,22 @@ void sendtopython(String data) {
 // formats page number as a Nextion command
 // and sets off to check the current state of buttons
 void pagetonextion(int page) {
-  String pg = "page " + String(page);
-  sendtonextion(pg);
-  setbuttonstate(page); 
+
+  // int to char
+  char *pg  = inttochar(page);
+
+  // send of to concat
+  char *con =  concat("page ", pg);
+
+  sendtonextion(con);
+  // setbuttonstate(page);
+
   if(page == 2) {
-    setradiostate(page);
+    // setradiostate(page);
     setradiovalues(page);
   }
+
+
 }
 
 // SET BUTTONS ACCORDING TO STATE ARRAY
@@ -387,13 +367,62 @@ void setradiostate(int page) {
 // SET RADIO VALUES
 // reads the values array and set the radio frequency boxes
 void setradiovalues(int page) {
-  int i;
-  int k;
-  int id = 0;
-  String box;
-  String valb = "v0" + String(page);
-  String cmd;
 
+  int i;
+  // int to char
+  char *pg  = inttochar(page);
+  // send of to concat to make first part of command string
+  char *valb = strcat("v0", pg);
+  char *cmd = strcat("page ", pg);
+
+  // iterate through all radio boxes
+  char *box[5] = {0};
+  char valbox[5] = {0};
+  for(i=0;i<20;i++) {
+    
+    strncpy(valbox, valb, 5);
+    valbox[4] = '\0';
+    char *ii  = inttochar(i); 
+
+    // format with leading zero
+    if(i<10) {
+      *box = strcat(valbox, "0");
+      *box = strcat(*box, ii);
+    } else {
+      *box = concat(valb, ii);
+    }
+    
+    // &cmd[0]; 
+    
+    Serial.println(*cmd);
+
+    // reset some arrays
+    memset(&box[0], '\0', sizeof(*box));
+    memset(&valbox[0], '\0', sizeof(valbox));
+
+    // char *cmd  = strcat("page ", pg);
+
+    
+
+    /*
+    // char cmd[9] = "page" + pg + "." + box + ".val=" + radioValues[0][i];
+    
+    char *cmd = concat("page ", pg);
+    *cmd = concat(cmd, ".");
+    *cmd = concat(cmd, box);
+    *cmd = concat(cmd, ".val=");
+
+    char *rv = inttochar(radioValues[0][i].toInt());
+
+    *cmd = concat(cmd, rv);
+    */
+
+    // Serial.println(cmd);   
+    // sendtonextion(cmd);
+
+  }
+
+  /*
   // iterate through the radiovalues[][] array
   for(i=0;i<5;i++) {
     for(k=0;k<4;k++) {
@@ -410,6 +439,7 @@ void setradiovalues(int page) {
       id++;
     }
   }
+  */
 }
 
 //
@@ -446,60 +476,66 @@ void buttontopython(String cmd) {
 // READ ROTARY
 // reads the rotary control
 void readrotary() {
-  int currentval;
+  
   int newval;
   int boxid = selectedbox.substring(3,5).toInt();  
   int page = selectedbox.substring(1,3).toInt();
 
-  // SWITCH LOGIC
-  int sw = digitalRead(rotarySW);
-  if (sw == 0) {
-
-    if (rotary_switch_state == 1) {
-      rotary_switch_state = 0;
-    } else {
-      rotary_switch_state = 1;
-    }
-    Serial.println(rotary_switch_state);
-    delay(400);
-  }
-
   // ROTARY LOGIC
-  aState = digitalRead(rotaryCLK);
+  //
+  rotCurrentState = digitalRead(rotaryCLK);
+  if (rotCurrentState != rotLastState  && rotCurrentState == 1){
 
-  if (aState != aLastState) {
     
-    if (digitalRead(rotaryDT) != aState) { // this is the positive side
-      Serial.println("pos");
+    if (digitalRead(rotaryDT) != rotCurrentState) { // adding values
 
-      // if there is selected box then find it in the array
-      if(selectedbox != "0") {
-        if(boxid < 4) {
-          newval = radiovalues[0][boxid].toInt() + 1;
-          // radiovalues[0][boxid] = String(newval);
-          
-        }    
-      }
+      newval = radioValues[0][boxid].toInt() + 1;
+      radioValues[0][boxid] = String(newval);
+      setradiovalues(page);
 
-      counter ++;
+    } else { // subtracting values
 
-    } else { // this is the negative side
-      Serial.println("neg");
-
-
-      if(selectedbox != "0") {
-        if(boxid < 3) {
-          newval = radiovalues[0][boxid].toInt() - 1;
-          // radiovalues[0][boxid] = String(newval);
-          
-        }    
-      }
-      counter --;
-
+      
     }
-    // setradiovalues(page);
 
+    
   }
-  aLastState = aState;
-  // 
+  rotLastState = rotCurrentState;
+  
+  // SWITCH LOGIC
+  //
+  int btnState = digitalRead(rotarySW);
+
+  if (btnState == LOW) {
+
+    if (millis() - rotSwitchState > 100) {
+      Serial.println("Button pressed!");
+    }
+
+    // Remember last button press event
+    rotSwitchState = millis();
+  }
+
+  delay(1);
+
 } // END readrotary()
+
+//
+// EXTRAS
+//
+char *concat(const char *a, const char *b){
+    int lena = strlen(a);
+    int lenb = strlen(b);
+    char *con = malloc(lena+lenb+1);
+    // copy & concat (including string termination)
+    memcpy(con,a,lena);
+    memcpy(con+lena,b,lenb+1);        
+    return con;
+}
+
+char *inttochar(int value) {
+  int length = snprintf(NULL, 0, "%d", value);
+  char* val = malloc( length + 1 );
+  snprintf(val, length + 1, "%d", value);
+  return val;
+}
