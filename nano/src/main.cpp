@@ -12,27 +12,21 @@ SoftwareSerial nextion (2, 3);
 
 
 //
-// * DECLARATIONS
+// * FUNC DECLARATIONS
 //
 void sendtonextion(char * data);
 void sendtopython(char * data);
 void nextionlisten();
+void pythonlisten();
 void pagetonextion(long page);
 void updatebuttonstate(long page);
 long getbuttonstate(char page [2], char button [2]);
 void setbuttonstate(char page [2], char button [2]);
 void buttontopython(char page [2], char button [2]);
-String formatbuttonstring(char page [2], char button [2], long state);
-char * longtochar(long value); // def
+void radioselecttonextion(char page [2], char numbox [2]);
+void setradiostate(long page);
+void setradiovalues(long page);
 void readrotary();
-
-// SERIAL COMS
-//
-
-String from_nextion = "";
-String from_python = "";
-int wait = 1;
-int updated = 0;
 
 // PAGE LOGIC
 //
@@ -45,18 +39,15 @@ long page_button_state[6][10] = {
         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 };
-int current_page_set = 0;
 
 // ROTARY ENCODER LOGIC
 //
 #define rotaryCLK 6
 #define rotaryDT 7
 #define rotarySW 5
-int rotCounter = 0;
 int rotCurrentState;
 int rotLastState;
 int rotSwitchState = 0;
-String rotDirection;
 
 // RADIO PAGE LOGIC
 //
@@ -71,19 +62,19 @@ int radio_select_state[6][20] = {
         {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 };
 // This global keeps track of which actual value box is currently selected
-String selectedbox = "0";
+// format: "vPPVV" where PP is page and VV is value box
+char selectedbox[6];
 // current radio values
 // row 0 - the current values, row 1 - min value. row 2 - max value, row 3 - increments allowed
-String radioValues[4][20] = {
-        {"115","000","130","500","110","000","115","100","0","1","9","0","1","2","5","0","5","5","5","5"},
-        {"118","000","118","000","108","000","108","000","0","2","0","0","0","2","0","0","0","0","0","0"},
-        {"136","990","136","990","117","950","117","950","1","7","5","0","1","7","5","0","7","7","7","7"},
-        {"1","5","1","5","1","5","1","5","1","1","1","1","1","1","1","1","1","1","1","1"}
+int radioValues[4][20] = {
+        {120,000,130,500,110,000,115,100,0,1,0,0,1,2,5,0,5,5,5,5}, // current
+        {118,000,118,000,108,000,108,000,0,2,0,0,0,0,0,0,0,0,0,0}, // min
+        {136,990,136,990,117,950,117,950,1,2,9,9,1,7,9,9,7,7,7,7}, // max
+        {1,5,1,5,1,5,1,5,1,1,1,1,1,1,1,1,1,1,1,1}// incr
 };
-
-// id of img used for different states
-const String IMG_ID_NOSEL = "4"; // state 0
-const String IMG_ID_SEL = "9"; // state 0
+// This is the global for the "multi" extended function key
+// format: 0 - off, 1 - on
+int multikey;
 
 
 //
@@ -91,8 +82,8 @@ const String IMG_ID_SEL = "9"; // state 0
 //
 void setup() {
 
-    Serial.begin(57600);
-    nextion.begin(9600);
+    Serial.begin(115200);
+    nextion.begin(57600);
 
     // SET START PAGE AND TEXT
     //
@@ -120,16 +111,16 @@ void setup() {
 //
 void loop() {
 
+    pythonlisten();
     nextionlisten();
-    // readrotary();
-
+    readrotary();
 }
 
 
 //
-// * MAIN NEXTION LOOP
+// * MAIN ARDUINO LOOP
 //
-// incoming message format for buttons/touchspots is -> #LCppccdddd (for example '#7b05014848' means -> string (#) with (7) bytes of data attached (button 01 on page 05 with 4848 as data attached).
+// incoming message format for buttons/touchspots is -> #LCppccdddd (for example '#9b05014848' means -> string (#) with (9) bytes of data attached (button 01 on page 05 with 4848 as data attached).
 // # - means string of data follows
 // L - number of bytes
 // C - command (b - button, m - page)
@@ -171,23 +162,34 @@ void nextionlisten() {
                     cmdnext[inl] += stuff;
                 }
 
+                // TRAILDATA
+                // we get the last trailing 4 characters of data for later use
+                char traildata[5];
+                sprintf(traildata, "%c%c%c%c", cmdnext[5], cmdnext[6], cmdnext[7], cmdnext[8]);
+
                 // CHANGE PAGE
                 //
                 if(cmdnext[0] == 'm') {
+
                     int i;
-                    char page[2];
-
-                    // get the rest of the characters
-                    for(i=0;i<2;i++) {
-                        page[i] = cmdnext[i+1];
-                    }
-
-                    pagetonextion(strtol(reinterpret_cast<const char *>(page), (char **) "\0", 10));
+                    char page[3];
+                    sprintf(page, "%c%c", cmdnext[1], cmdnext[2]);
+                    pagetonextion(atoi(page));
                 }
 
                 // BUTTON PRESSED
                 //
                 if(cmdnext[0] == 'b') {
+
+                    // check if the multikey has been pressed and set state of it
+                    // (any button can be defined as "multi" by its last for characters)
+                    if (strcmp(traildata, "MULT") == 0) {
+                        if (multikey == 1) {
+                            multikey = 0;
+                        } else {
+                            multikey = 1;
+                        }
+                    }
 
                     char pg[3];
                     sprintf(pg, "%c%c", cmdnext[1], cmdnext[2]);
@@ -199,19 +201,85 @@ void nextionlisten() {
                     buttontopython(pg, bt);
                 }
 
-                /* ! FIX ME
                 // NUMBER DISPLAY PRESSED
                 //
-                if(cmdnext[0] == "v") {
-                  radioselecttonextion(cmdnext.substring(0,len));
+                if(cmdnext[0] == 'v') {
+
+                    char vpage[3];
+                    sprintf(vpage, "%c%c", cmdnext[1], cmdnext[2]);
+                    char vbutton[3];
+                    sprintf(vbutton, "%c%c", cmdnext[3], cmdnext[4]);
+                    radioselecttonextion(vpage, vbutton);
                 }
-                */ // ! END FIX
-
             }
-
         }
     }
 } // END nextionlisten()
+
+// incoming message format from python  -> *LCppccdddd (for example '*9b05014848' means -> string (*) with (9) bytes of data attached (button 01 on page 05 with 4848 as data attached).
+// * - means string of data follows
+// L - number of bytes
+// C - command (b - button, d - dref, c - general command)
+// pp - nextion page
+// cc - nextion number
+// dddd - any data that follows (can be any length)
+//
+void pythonlisten() {
+
+    if(Serial.available() > 2){
+        unsigned char start_char = Serial.read();
+
+        // COMMANDS
+        // look for the flag '#' meaning this is an incoming command
+        if(start_char == '*'){
+
+            uint8_t len = Serial.read() - '0'; // turn ascii into number
+            unsigned long wait1 = millis();
+            boolean found = true;
+
+            // wait for the remaining string and time out if needed
+            while(Serial.available() < len){
+                if((millis() - wait1) > 100){
+                    found = false;
+                    break;
+                }
+            }
+
+            // get the actual command string
+            char cmdnext[9] = {"\0"};
+            if(found){
+                int inl;
+
+                // read rest of the incoming chars
+                for(inl=0; inl < len; inl++) {
+                    int asc = Serial.read();
+                    char stuff = asc;
+                    cmdnext[inl] += stuff;
+                }
+
+                // TRAILDATA
+                // we get the last trailing 4 characters of data for later use
+                char traildata[5];
+                sprintf(traildata, "%c%c%c%c", cmdnext[5], cmdnext[6], cmdnext[7], cmdnext[8]);
+
+                // GENERAL COMMANDS
+                //
+                if(cmdnext[0] == 'c') {
+
+                    // Check if this is startup request from python
+                    if (strcmp(traildata, "RVAL") == 0) {
+
+                        // receive startup values from python
+
+                    }
+
+
+                }
+
+            }
+        }
+    }
+} // END pythonlisten()
 
 
 //
@@ -228,6 +296,8 @@ void sendtonextion(char *data) {
     nextion.write(0xFF);
 } // END sendtonextion()
 
+// SEND TO PYTHON
+// sending preformatted string to Python
 void sendtopython(char *data) {
 
     Serial.print(data);
@@ -242,29 +312,58 @@ void sendtopython(char *data) {
 // reads the rotary control
 void readrotary() {
 
-    int newval;
-    int boxid = selectedbox.substring(3,5).toInt();
-    int page = selectedbox.substring(1,3).toInt();
-
     // ROTARY LOGIC
     //
     rotCurrentState = digitalRead(rotaryCLK);
     if (rotCurrentState != rotLastState  && rotCurrentState == 1){
 
+        int newval;
+        char boxid [3];
+        char page [3];
+        int boxnum;
+        long pagenum;
+        int incr;
+        sprintf(boxid, "%c%c", selectedbox[3], selectedbox[4]);
+        sprintf(page, "%c%c", selectedbox[1], selectedbox[2]);
+        boxnum = atoi(boxid);
+        pagenum = atoi(page);
 
-        if (digitalRead(rotaryDT) != rotCurrentState) { // adding values
+        // if radio page
+        if (pagenum == 2) {
+            if (digitalRead(rotaryDT) != rotCurrentState) { // adding values
 
-            newval = radioValues[0][boxid].toInt() + 1;
-            radioValues[0][boxid] = String(newval);
-            // setradiovalues(page);
-            Serial.println("pos");
+                incr = radioValues[3][boxnum];
 
-        } else { // subtracting values
-            Serial.println("neg");
+                // incr values depending on multi key
+                if (multikey == 1) {
+                    newval = radioValues[0][boxnum] + 100;
+                } else {
+                    newval = radioValues[0][boxnum] + incr;
+                }
 
+                // check for limits
+                if (newval >= radioValues[1][boxnum] && newval <= radioValues[2][boxnum]) {
+                    radioValues[0][boxnum] = newval;
+                    setradiovalues(pagenum);
+                }
+
+            } else { // subtracting values
+
+                // decr values depending on multi key
+                incr = radioValues[3][boxnum];
+                if (multikey == 1) {
+                    newval = radioValues[0][boxnum] - 100;
+                } else {
+                    newval = radioValues[0][boxnum] - incr;
+                }
+
+                // check for limits
+                if (newval >= radioValues[1][boxnum] && newval <= radioValues[2][boxnum]) {
+                    radioValues[0][boxnum] = newval;
+                    setradiovalues(pagenum);
+                }
+            }
         }
-
-
     }
     rotLastState = rotCurrentState;
 
@@ -280,9 +379,9 @@ void readrotary() {
 
         // Remember last button press event
         rotSwitchState = millis();
+        delay(5); // to stop bounce on switch
     }
 
-    delay(1);
 } // END readrotary()
 
 
@@ -306,16 +405,16 @@ void pagetonextion(long page) {
     sendtonextion(con); // change page
     updatebuttonstate(page);
 
-    /* ! FIX
     if(page == 2) {
-        // setradiostate(page);
+        setradiostate(page);
         setradiovalues(page);
     }
-    */
+
 } // END pagettonextion()
 
 // UPDATES BUTTONS ON NEXTION ACCORDING TO STATE ARRAY
 // checks for current state on given page and sets them thereafter
+// format: "pageX.bXXBB.val=1" whare X is page and B is button. Value 1 for on and 0 for off state.
 void updatebuttonstate(long page) {
     int i;
     long state;
@@ -372,6 +471,101 @@ long getbuttonstate(char page [2], char button [2]) {
 
     return cstate;
 } // END getbuttonstate()
+
+
+// RADIO VALUES SPECIFIC
+//
+
+// CHANGE RADIO VALUE BOX STATE
+// Changes the select state of a radio value box
+// format: "vPPBB" where PP is page and BB is box number
+void radioselecttonextion(char page [2], char numbox [2]) {
+
+    int vpage = atoi(page);
+    int imgbox = atoi(numbox);
+    char vbox[6];
+    sprintf(vbox, "v%s%s", page, numbox);
+
+    // check current value and remember new
+    int newvalue;
+    if(radio_select_state[vpage][imgbox] == 0) {
+        newvalue = 1;
+        selectedbox[0] = 'v';
+        for (int j=1; j<6; j++) {
+            selectedbox[j] = vbox[j];
+        }
+    } else {
+        newvalue = 0;
+        for (int j; j<5; j++) {
+            selectedbox[j] = 0;
+        }
+    }
+
+    // reset array
+    int i;
+    for(i=0;i<20;i++) {
+        radio_select_state[vpage][i] = 0;
+    }
+
+    // set to new value
+    radio_select_state[vpage][imgbox] = newvalue;
+    setradiostate(atoi(page));
+}
+
+// SET RADIO NUMBER STATES
+// checks for current number box state for given page and sets a new value
+// format: "pageX.iXXBB.picc=8" where X is page and B is box number.
+void setradiostate(long page) {
+
+    int i;
+    int state;
+    char cmd [20];
+
+    // int to char
+    char buffer [2];
+    snprintf(buffer, sizeof(buffer), "%ld", page);
+    char * pg = buffer;
+
+    char id[3];
+    sprintf(id, "0%ld", page);
+
+    for(i=0;i<20;i++) {
+
+        state = radio_select_state[page][i];
+
+        if(state == 0) {
+            sprintf(cmd, "page%s.i%s%02d.picc=8", pg, id, i);
+        } else {
+            sprintf(cmd, "page%s.i%s%02d.picc=9", pg, id, i);
+        }
+        sendtonextion(cmd);
+    }
+}
+
+// SET RADIO VALUES
+// reads the values array and set the radio frequency boxes
+// format: "pageX.vXXBB.val=123" where X is the page, BB is the box number and value is the box value.
+void setradiovalues(long page) {
+
+    int i;
+
+    char cmd[22];
+    char pgf[3];
+    sprintf(pgf, "0%ld", page);
+
+    // int to char
+    char buffer [2];
+    snprintf(buffer, sizeof(buffer), "%ld", page);
+    char * pg = buffer;
+
+    int val;
+    for(i=0;i<20;i++) {
+
+        val = radioValues[0][i]; // sets current values
+        sprintf(cmd, "page%s.v%s%02d.val=%d", pg, pgf, i, val);
+        sendtonextion(cmd);
+    }
+}
 
 
 //
